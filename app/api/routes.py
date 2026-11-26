@@ -26,6 +26,10 @@ _AGENTS = {
     "meeting": MeetingAgent(),
 }
 
+# In-memory conversation history per session_id (last 10 messages)
+_CONVERSATION_HISTORY: dict[str, list[dict]] = {}
+_MAX_HISTORY_MESSAGES = 10
+
 
 # ── Pydantic Schemas ─────────────────────────────────────────────
 
@@ -33,6 +37,8 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
     agent_type: Optional[str] = None
     vendor_id: Optional[int] = None
+    session_id: Optional[str] = "default"
+    history: Optional[list[dict]] = None
 
 
 class OrderStatusUpdate(BaseModel):
@@ -75,17 +81,31 @@ async def chat_with_agent(req: ChatRequest, db: Session = Depends(get_db)):
     selected = AgentRouter.route(req.message, req.agent_type)
     agent = _AGENTS.get(selected, _AGENTS["order"])
 
-    context = {}
+    session_key = (req.session_id or "default").strip() or "default"
+    history = req.history if req.history is not None else _CONVERSATION_HISTORY.get(session_key, [])
+
+    context: dict = {"history": history[-_MAX_HISTORY_MESSAGES:]}
     if req.vendor_id is not None:
         context["vendor_id"] = req.vendor_id
 
     result = await agent.process(req.message, db, context=context)
+    reply_text = result.get("response", "")
+
+    # Persist turn in session history (skip validation errors if vendor_id was missing)
+    if req.history is None and reply_text:
+        sess_hist = _CONVERSATION_HISTORY.setdefault(session_key, [])
+        sess_hist.append({"role": "user", "content": req.message})
+        sess_hist.append({"role": "assistant", "content": reply_text})
+        if len(sess_hist) > _MAX_HISTORY_MESSAGES:
+            _CONVERSATION_HISTORY[session_key] = sess_hist[-_MAX_HISTORY_MESSAGES:]
+
     return {
         "agent": result.get("agent", selected),
         "routed_to": selected,
-        "response": result.get("response", ""),
+        "response": reply_text,
         "tool_results": result.get("tool_results", []),
         "ai_provider": get_settings().ai_provider,
+        "session_id": session_key,
     }
 
 

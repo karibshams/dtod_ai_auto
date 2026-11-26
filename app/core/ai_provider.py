@@ -28,6 +28,7 @@ class AIProvider(ABC):
         system_prompt: str,
         user_message: str,
         tools: list[dict] | None = None,
+        messages: list[dict] | None = None,
     ) -> dict:
         """Return {"response": str, "tool_calls": list[dict] | None}."""
         ...
@@ -58,6 +59,7 @@ class MockProvider(AIProvider):
         system_prompt: str,
         user_message: str,
         tools: list[dict] | None = None,
+        messages: list[dict] | None = None,
     ) -> dict:
         msg_lower = user_message.lower()
         intent = self._detect_intent(msg_lower)
@@ -248,39 +250,51 @@ class GroqProvider(AIProvider):
         system_prompt: str,
         user_message: str,
         tools: list[dict] | None = None,
+        messages: list[dict] | None = None,
     ) -> dict:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        payload: dict = {
-            "model": self.model,
-            "messages": [
+        chat_messages = (
+            [{"role": "system", "content": system_prompt}, *messages]
+            if messages
+            else [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
-            ],
-            "temperature": 0.7,
+            ]
+        )
+        payload: dict = {
+            "model": self.model,
+            "messages": chat_messages,
+            "temperature": 0.3,
             "max_tokens": 1024,
         }
         if tools:
             payload["tools"] = self._format_tools(tools)
             payload["tool_choice"] = "auto"
 
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(self.API_URL, headers=headers, json=payload)
-                resp.raise_for_status()
-                data = resp.json()
-            return self._parse_response(data)
-        except httpx.HTTPStatusError as exc:
-            logger.error("Groq API HTTP error %s: %s", exc.response.status_code, exc.response.text)
-            return self._fallback_response(str(exc))
-        except httpx.RequestError as exc:
-            logger.error("Groq API request error: %s", exc)
-            return self._fallback_response(str(exc))
-        except Exception as exc:
-            logger.error("Groq unexpected error: %s", exc)
-            return self._fallback_response(str(exc))
+        last_error = ""
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.post(self.API_URL, headers=headers, json=payload)
+                    resp.raise_for_status()
+                    data = resp.json()
+                return self._parse_response(data)
+            except httpx.HTTPStatusError as exc:
+                last_error = f"HTTP {exc.response.status_code}: {exc.response.text}"
+                logger.error("Groq API HTTP error (attempt %d): %s", attempt + 1, last_error)
+                payload["temperature"] = 0.0
+            except httpx.RequestError as exc:
+                last_error = str(exc)
+                logger.error("Groq API request error (attempt %d): %s", attempt + 1, last_error)
+            except Exception as exc:
+                last_error = str(exc)
+                logger.error("Groq unexpected error (attempt %d): %s", attempt + 1, last_error)
+                break
+
+        return self._fallback_response(last_error)
 
     @staticmethod
     def _format_tools(tools: list[dict]) -> list[dict]:
@@ -302,7 +316,7 @@ class GroqProvider(AIProvider):
         tool_calls = None
         if message.get("tool_calls"):
             tool_calls = []
-            for tc in message["tool_calls"]:
+            for idx, tc in enumerate(message["tool_calls"]):
                 import json as _json
                 args = tc["function"].get("arguments", "{}")
                 if isinstance(args, str):
@@ -311,22 +325,22 @@ class GroqProvider(AIProvider):
                     except _json.JSONDecodeError:
                         args = {}
                 tool_calls.append({
+                    "id": tc.get("id") or f"call_{idx}",
                     "name": tc["function"]["name"],
                     "arguments": args,
                 })
         return {
             "response": message.get("content") or "",
             "tool_calls": tool_calls,
+            "assistant_message": message,
         }
 
     @staticmethod
     def _fallback_response(error: str) -> dict:
         return {
-            "response": (
-                "I'm having trouble connecting to the AI service right now. "
-                "Please try again in a moment."
-            ),
+            "response": f"AI provider error: {error}",
             "tool_calls": None,
+            "error": error,
         }
 
 
@@ -348,6 +362,7 @@ class OpenAIProvider(AIProvider):
         system_prompt: str,
         user_message: str,
         tools: list[dict] | None = None,
+        messages: list[dict] | None = None,
     ) -> dict:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -403,6 +418,7 @@ class GeminiProvider(AIProvider):
         system_prompt: str,
         user_message: str,
         tools: list[dict] | None = None,
+        messages: list[dict] | None = None,
     ) -> dict:
         url = self.API_URL_TEMPLATE.format(model=self.model)
         params = {"key": self.api_key}
@@ -526,6 +542,7 @@ class OllamaProvider(AIProvider):
         system_prompt: str,
         user_message: str,
         tools: list[dict] | None = None,
+        messages: list[dict] | None = None,
     ) -> dict:
         url = f"{self.base_url}/api/chat"
         payload: dict = {

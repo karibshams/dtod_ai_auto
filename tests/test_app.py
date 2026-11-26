@@ -184,3 +184,40 @@ def test_webhook_endpoint():
     )
     assert resp.status_code == 200
     assert resp.json()["status"] == "received"
+
+
+def test_vendor_id_zero_and_missing_rejected():
+    for bad_vid in (None, 0, -1):
+        resp = _request(
+            "POST",
+            "/api/chat",
+            json={"message": "Show my commission", "agent_type": "vendor", "vendor_id": bad_vid},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "Please enter your Vendor ID" in data["response"]
+        assert data["tool_results"] == []
+
+
+def test_tool_name_normalization_and_coercion():
+    from app.agents.tools import ToolExecutor
+    from app.core.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        ex = ToolExecutor()
+        target_date = (date.today() + timedelta(days=5)).isoformat()
+        res = ex.execute(
+            "tool_schedule_meeting",
+            {
+                "date": target_date,
+                "start_time": "14:00",
+                "attendees": ["Alice", "Bob"],
+            },
+            db,
+        )
+        assert res["success"] is True
+        assert [a.strip() for a in res["data"]["attendees"]] == ["Alice", "Bob"]
+        assert res["data"]["end_time"] == "15:00"
+    finally:
+        db.close()

@@ -35,47 +35,53 @@ class VendorAgent(BaseAgent):
         db: Session,
         context: dict | None = None,
     ) -> dict:
-        """Enforce vendor_id isolation before delegating to BaseAgent."""
+        """Enforce vendor_id presence & isolation before delegating to BaseAgent."""
         context = context or {}
-        scoped_vendor_id = context.get("vendor_id")
+        raw_vendor_id = context.get("vendor_id")
 
-        if scoped_vendor_id is not None:
-            scoped_vendor_id = int(scoped_vendor_id)
-            # Check if the user is trying to access another vendor's ID
-            mentioned_ids = re.findall(
-                r"vendor\s*(?:id|#)?\s*(\d+)", user_message, re.IGNORECASE
-            )
-            for mid in mentioned_ids:
-                if int(mid) != scoped_vendor_id:
-                    from app.services import activity_service
+        try:
+            scoped_vendor_id = int(raw_vendor_id) if raw_vendor_id is not None else 0
+        except (TypeError, ValueError):
+            scoped_vendor_id = 0
 
-                    msg = (
-                        f"Access denied: As Vendor #{scoped_vendor_id}, you are only "
-                        f"authorized to view your own vendor data (requested Vendor #{mid})."
-                    )
-                    activity_service.log_activity(
-                        db=db,
-                        agent=self.name,
-                        action="access_denied",
-                        details=json.dumps(
-                            {"scoped_vendor_id": scoped_vendor_id, "requested_id": int(mid)}
-                        ),
-                        user_query=user_message,
-                        success=False,
-                    )
-                    return {
-                        "response": msg,
-                        "tool_results": [],
-                        "agent": self.name,
-                    }
+        if scoped_vendor_id <= 0:
+            return {
+                "response": "Please enter your Vendor ID (a positive number, e.g. 1) before asking Vendor Agent questions.",
+                "tool_results": [],
+                "agent": self.name,
+            }
 
-            # Inject scoped vendor_id into prompt for real LLM providers
-            augmented_message = (
-                f"[Authenticated Vendor ID: {scoped_vendor_id}. "
-                f"Only query data for vendor_id={scoped_vendor_id}.] {user_message}"
-            )
-            result = await super().process(augmented_message, db, context)
-            # Restore clean user_query in return if needed
-            return result
+        # Check if the user is trying to access another vendor's ID
+        mentioned_ids = re.findall(
+            r"vendor\s*(?:id|#)?\s*(\d+)", user_message, re.IGNORECASE
+        )
+        for mid in mentioned_ids:
+            if int(mid) != scoped_vendor_id:
+                from app.services import activity_service
 
-        return await super().process(user_message, db, context)
+                msg = (
+                    f"Access denied: As Vendor #{scoped_vendor_id}, you are only "
+                    f"authorized to view your own vendor data (requested Vendor #{mid})."
+                )
+                activity_service.log_activity(
+                    db=db,
+                    agent=self.name,
+                    action="access_denied",
+                    details=json.dumps(
+                        {"scoped_vendor_id": scoped_vendor_id, "requested_id": int(mid)}
+                    ),
+                    user_query=user_message,
+                    success=False,
+                )
+                return {
+                    "response": msg,
+                    "tool_results": [],
+                    "agent": self.name,
+                }
+
+        # Inject scoped vendor_id into prompt for real LLM providers
+        augmented_message = (
+            f"[Authenticated Vendor ID: {scoped_vendor_id}. "
+            f"Only query data for vendor_id={scoped_vendor_id}.] {user_message}"
+        )
+        return await super().process(augmented_message, db, context)

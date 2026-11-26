@@ -263,14 +263,26 @@ function initChat() {
     });
 }
 
+const _chatSessionId = "sess-" + Math.random().toString(36).slice(2, 10);
+
 async function sendChatMessage() {
     const chatInput = document.getElementById("chat-input");
     const selector = document.getElementById("agent-selector");
     const vendorInput = document.getElementById("vendor-id-input");
-    const messagesDiv = document.getElementById("chat-messages");
 
     const message = chatInput.value.trim();
     if (!message) return;
+
+    const selectedAgent = selector ? selector.value : null;
+    let parsedVendorId = null;
+    if (selectedAgent === "vendor") {
+        parsedVendorId = parseInt(vendorInput?.value || "", 10);
+        if (!vendorInput?.value || isNaN(parsedVendorId) || parsedVendorId <= 0) {
+            appendChatBubble("bot", `<span class="text-danger">Please enter your Vendor ID (1 or higher) before sending a message to the Vendor Agent.</span>`);
+            vendorInput?.focus();
+            return;
+        }
+    }
 
     appendChatBubble("user", escapeHtml(message));
     chatInput.value = "";
@@ -280,10 +292,11 @@ async function sendChatMessage() {
 
     const payload = {
         message,
-        agent_type: selector ? selector.value : null,
+        agent_type: selectedAgent,
+        session_id: _chatSessionId,
     };
-    if (selector?.value === "vendor" && vendorInput?.value) {
-        payload.vendor_id = parseInt(vendorInput.value, 10);
+    if (selectedAgent === "vendor" && parsedVendorId) {
+        payload.vendor_id = parsedVendorId;
     }
 
     try {

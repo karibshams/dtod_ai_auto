@@ -31,59 +31,88 @@ class BaseAgent:
 
         Returns ``{"response": str, "tool_results": list, "agent": str}``.
         """
-        from app.core.ai_provider import get_ai_provider
+        from datetime import date as _date
+        from app.core.ai_provider import MockProvider, get_ai_provider
         from app.core.config import get_settings
 
         provider = get_ai_provider()
         tool_results: list[dict] = []
         settings = get_settings()
+        context = context or {}
+        effective_system_prompt = (
+            f"{self.system_prompt}\n\n"
+            f"Current date: {_date.today().isoformat()}. "
+            f"Always call the required tools directly using exact tool names (without any 'tool_' prefix). "
+            f"If a request needs multiple tools, call all of them."
+        )
 
         try:
             # ── Mock-mode fast path ──────────────────────────────
             if settings.ai_provider == "mock":
-                tool_results = self._mock_tool_execution(user_message, db, context)
-                # Still call the provider so we get a natural-language answer
-                ai_result = await provider.generate(
-                    system_prompt=self.system_prompt,
-                    user_message=user_message,
-                    tools=self.tools,
+                tool_results, response_text = await self._run_mock_turn(
+                    user_message, db, context, provider
                 )
-                response_text = ai_result.get("response", "")
 
-                # If the mock provider also returned tool_calls, execute them
-                if ai_result.get("tool_calls"):
-                    for tc in ai_result["tool_calls"]:
-                        name = tc.get("name", "")
-                        args = tc.get("arguments", {})
-                        if isinstance(args, str):
-                            try:
-                                args = json.loads(args)
-                            except json.JSONDecodeError:
-                                args = {}
-                        result = self._tool_executor.execute(name, args, db)
-                        tool_results.append(
-                            {"tool": name, "arguments": args, "result": result}
-                        )
-
-                # Build a friendly response from tool_results when the
-                # provider answer is generic.
-                if tool_results:
-                    response_text = self._format_tool_response(
-                        response_text, tool_results
-                    )
-
-            # ── Real-provider path ───────────────────────────────
+            # ── Real-provider agent loop (max 4 iterations) ──────
             else:
-                ai_result = await provider.generate(
-                    system_prompt=self.system_prompt,
-                    user_message=user_message,
-                    tools=self.tools,
-                )
+                history = context.get("history") or []
+                messages: list[dict] = [
+                    *history[-10:],
+                    {"role": "user", "content": user_message},
+                ]
+                response_text = ""
+                max_iterations = 4
 
-                response_text = ai_result.get("response", "")
+                for _ in range(max_iterations):
+                    ai_result = await provider.generate(
+                        system_prompt=effective_system_prompt,
+                        user_message=user_message,
+                        tools=self.tools,
+                        messages=messages,
+                    )
 
-                if ai_result.get("tool_calls"):
-                    for tc in ai_result["tool_calls"]:
+                    if ai_result.get("error"):
+                        logger.warning(
+                            "Provider %s failed (%s); falling back to mock mode.",
+                            settings.ai_provider,
+                            ai_result["error"],
+                        )
+                        tool_results, response_text = await self._run_mock_turn(
+                            user_message, db, context, MockProvider()
+                        )
+                        break
+
+                    response_text = ai_result.get("response", "")
+                    tool_calls = ai_result.get("tool_calls")
+
+                    if not tool_calls:
+                        break
+
+                    # Preserve assistant message with tool_calls in conversation
+                    assistant_msg = ai_result.get("assistant_message") or {
+                        "role": "assistant",
+                        "content": response_text or None,
+                        "tool_calls": [
+                            {
+                                "id": tc.get("id", f"call_{i}"),
+                                "type": "function",
+                                "function": {
+                                    "name": tc.get("name", ""),
+                                    "arguments": (
+                                        tc["arguments"]
+                                        if isinstance(tc.get("arguments"), str)
+                                        else json.dumps(tc.get("arguments", {}))
+                                    ),
+                                },
+                            }
+                            for i, tc in enumerate(tool_calls)
+                        ],
+                    }
+                    messages.append(assistant_msg)
+
+                    # Execute ALL tool calls requested in this turn
+                    for i, tc in enumerate(tool_calls):
+                        tc_id = tc.get("id") or f"call_{i}"
                         name = tc.get("name", "")
                         args = tc.get("arguments", {})
                         if isinstance(args, str):
@@ -95,20 +124,14 @@ class BaseAgent:
                         tool_results.append(
                             {"tool": name, "arguments": args, "result": result}
                         )
-
-                    # Second call with tool results to get a final answer
-                    tool_context = json.dumps(tool_results, default=str)
-                    followup_msg = (
-                        f"Tool results:\n{tool_context}\n\n"
-                        f"Based on these results, please provide a helpful response "
-                        f"to the user's original question: {user_message}"
-                    )
-                    followup = await provider.generate(
-                        system_prompt=self.system_prompt,
-                        user_message=followup_msg,
-                        tools=None,
-                    )
-                    response_text = followup.get("response", response_text)
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tc_id,
+                                "name": name,
+                                "content": json.dumps(result, default=str),
+                            }
+                        )
 
         except Exception as exc:
             logger.exception("Agent %s failed", self.name)
@@ -140,6 +163,37 @@ class BaseAgent:
         }
 
     # ── Mock-mode helpers ────────────────────────────────────────
+
+    async def _run_mock_turn(
+        self,
+        user_message: str,
+        db: Session,
+        context: dict | None,
+        provider,
+    ) -> tuple[list[dict], str]:
+        tool_results = self._mock_tool_execution(user_message, db, context)
+        ai_result = await provider.generate(
+            system_prompt=self.system_prompt,
+            user_message=user_message,
+            tools=self.tools,
+        )
+        response_text = ai_result.get("response", "")
+        if ai_result.get("tool_calls"):
+            for tc in ai_result["tool_calls"]:
+                name = tc.get("name", "")
+                args = tc.get("arguments", {})
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except json.JSONDecodeError:
+                        args = {}
+                result = self._tool_executor.execute(name, args, db)
+                tool_results.append(
+                    {"tool": name, "arguments": args, "result": result}
+                )
+        if tool_results:
+            response_text = self._format_tool_response(response_text, tool_results)
+        return tool_results, response_text
 
     def _mock_tool_execution(
         self, message: str, db: Session, context: dict | None
