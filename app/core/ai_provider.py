@@ -268,7 +268,7 @@ class GroqProvider(AIProvider):
             "model": self.model,
             "messages": chat_messages,
             "temperature": 0.3,
-            "max_tokens": 1024,
+            "max_tokens": 2048,
         }
         if tools:
             payload["tools"] = self._format_tools(tools)
@@ -329,11 +329,15 @@ class GroqProvider(AIProvider):
                     "name": tc["function"]["name"],
                     "arguments": args,
                 })
-        return {
-            "response": message.get("content") or "",
+        content = message.get("content") or ""
+        res: dict = {
+            "response": content,
             "tool_calls": tool_calls,
             "assistant_message": message,
         }
+        if not content.strip() and not tool_calls:
+            res["error"] = "Empty response from Groq (no content or tool calls)"
+        return res
 
     @staticmethod
     def _fallback_response(error: str) -> dict:

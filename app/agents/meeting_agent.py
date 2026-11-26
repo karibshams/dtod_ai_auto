@@ -8,12 +8,11 @@ from app.agents.base_agent import BaseAgent
 from app.agents.tools import MEETING_TOOLS
 
 MEETING_SYSTEM_PROMPT = """You are the Meeting Scheduling Agent for Dress 2 Decor.
-Your responsibilities:
-1. Check available meeting slots on a given date (business hours 09:00-17:00, 1-hour slots) using `check_available_slots`.
-2. Schedule new meetings using `schedule_meeting` with `date` (YYYY-MM-DD), `start_time` (HH:MM), `end_time` (HH:MM), `title`, `organizer`, `attendees`, and `location`.
-   - IMPORTANT: Do NOT ask follow-up questions if `title`, `organizer`, `attendees`, or `location` are omitted. Use sensible defaults immediately (`title="Dress 2 Decor Meeting"`, `organizer="Dress 2 Decor Team"`, `attendees=""`, `location="Virtual"`, and 1 hour duration if `end_time` is omitted) and call `schedule_meeting` right away after checking slots.
-3. List upcoming meetings or cancel existing meetings by ID.
-4. Provide clear booking confirmations with date, time, and meeting ID."""
+Rules:
+1. Use `check_available_slots` to check open 1-hour slots (09:00-17:00).
+2. Use `schedule_meeting` to book meetings. If `title`, `organizer`, `attendees`, or `location` are omitted, use defaults (`title="Dress 2 Decor Meeting"`, `organizer="Dress 2 Decor Team"`, `attendees=""`, `location="Virtual"`, 1-hour duration) without asking follow-ups.
+3. For listing and cancelling (e.g. "show upcoming meetings then cancel X"), call `get_upcoming_meetings` first, then call `cancel_meeting` with the matching `meeting_id`.
+4. Confirm with date, time, title, location, and meeting ID. Meetings are saved in the internal calendar only — never claim a calendar invite or email will be sent."""
 
 
 class MeetingAgent(BaseAgent):
@@ -30,11 +29,31 @@ class MeetingAgent(BaseAgent):
         self, message: str, db: Session, context: dict | None
     ) -> list[dict]:
         """Extend mock tool execution to support natural-language scheduling."""
+        msg_lower = message.lower()
+        results: list[dict] = []
+
+        # Multi-intent: list upcoming meetings and optionally cancel one by ID or title
+        if ("upcoming" in msg_lower or "list" in msg_lower or "show" in msg_lower) and "cancel" in msg_lower:
+            list_res = self._tool_executor.execute("get_upcoming_meetings", {}, db)
+            results.append({"tool": "get_upcoming_meetings", "arguments": {}, "result": list_res})
+            if list_res.get("success") and isinstance(list_res.get("data"), list):
+                mid_match = re.search(r"meeting\s*#?\s*(\d+)", msg_lower)
+                target_id = int(mid_match.group(1)) if mid_match else None
+                if target_id is None:
+                    for m in list_res["data"]:
+                        title_words = [w for w in (m.get("title") or "").lower().split() if len(w) > 3]
+                        if any(w in msg_lower for w in title_words):
+                            target_id = m["id"]
+                            break
+                if target_id is not None:
+                    cancel_res = self._tool_executor.execute("cancel_meeting", {"meeting_id": target_id}, db)
+                    results.append({"tool": "cancel_meeting", "arguments": {"meeting_id": target_id}, "result": cancel_res})
+            return results
+
         results = super()._mock_tool_execution(message, db, context)
         if results:
             return results
 
-        msg_lower = message.lower()
         if any(kw in msg_lower for kw in ("schedule", "book", "set up", "create")) and any(
             kw in msg_lower for kw in ("meeting", "call", "appointment", "consultation")
         ):
