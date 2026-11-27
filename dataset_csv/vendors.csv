@@ -1,0 +1,16 @@
+id,name,email,phone,company,commission_rate,is_active,joined_at
+1,Angelica Parker,xfox@example.com,001-412-451-7785,Luxe Fabrics Co,16.4,True,2026-07-15 09:03:10
+2,Jessica Bartlett,guerraapril@example.com,(525)635-8414,Modern Blinds Ltd,10.3,True,2025-03-03 05:54:33
+3,Lisa Davis,brittanycarpenter@example.org,+1-299-959-0010x9439,Artisan Rugs Studio,12.8,True,2026-03-28 03:45:01
+4,Maria Turner,lindacohen@example.com,710.727.6773x592,GreenLeaf Wallpapers,12.2,True,2026-06-19 07:02:28
+5,Haley Ross PhD,floressteven@example.com,732.510.4696x325,Cozy Cushion Works,17.4,True,2026-07-11 18:10:45
+6,Zachary Owens,tyler16@example.net,233.395.0047x974,Bright Homes Lighting,16.8,True,2025-10-26 17:38:30
+7,Dennis Diaz,zdiaz@example.org,001-983-658-4168,Timber & Stone Furniture,18.9,True,2026-03-25 02:37:51
+8,Barbara Hester,vbrooks@example.net,(923)998-6800x025,Décor Essentials Inc,10.9,True,2025-03-21 17:01:15
+9,Kaylee Murphy,francisco94@example.net,688-287-9470x55169,Silk Road Textiles,14.2,True,2026-03-04 15:46:03
+10,Walter Patton,jennifersilva@example.org,896.523.0913x07562,Urban Nest Interiors,10.3,True,2025-10-10 18:33:18
+11,Lisa Ruiz,thorntonapril@example.net,578-565-2785x85497,Heritage Weaves,12.2,True,2025-06-30 17:37:19
+12,Courtney Dudley,kellie37@example.com,258.644.1986x6524,CasaBlanca Home,15.1,True,2026-06-03 17:07:27
+13,Thomas Douglas,ilewis@example.com,+1-542-519-9330,Nordic Living Co,10.3,True,2025-01-05 19:04:15
+14,Gary Kennedy,adampierce@example.org,(877)434-5401x93802,Sunrise Drapery,12.0,True,2024-12-24 05:59:22
+15,Jennifer Simpson DVM,nancy04@example.net,+1-515-347-8872x874,EcoHome Accessories,16.5,True,2025-08-09 20:57:51

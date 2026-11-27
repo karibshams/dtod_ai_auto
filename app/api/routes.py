@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.agents import OrderAgent, VendorAgent, MeetingAgent, AgentRouter
+from app.agents import OrderAgent, VendorAgent, MeetingAgent, AnalystAgent, AgentRouter
 from app.services import (
     order_service,
     vendor_service,
@@ -24,6 +24,7 @@ _AGENTS = {
     "order": OrderAgent(),
     "vendor": VendorAgent(),
     "meeting": MeetingAgent(),
+    "analyst": AnalystAgent(),
 }
 
 # In-memory conversation history per session_id (last 10 messages)
@@ -104,6 +105,7 @@ async def chat_with_agent(req: ChatRequest, db: Session = Depends(get_db)):
         "routed_to": selected,
         "response": reply_text,
         "tool_results": result.get("tool_results", []),
+        "chart": result.get("chart"),
         "ai_provider": get_settings().ai_provider,
         "session_id": session_key,
     }

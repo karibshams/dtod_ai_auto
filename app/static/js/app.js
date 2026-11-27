@@ -10,6 +10,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initNavigation();
     initClock();
     initChat();
+    initAnalystChat();
     initFilters();
     initMeetings();
     loadHealth();
@@ -82,6 +83,7 @@ function initNavigation() {
     const titles = {
         dashboard: "Dashboard",
         chat: "AI Assistant",
+        analyst: "Business Analyst AI",
         orders: "Order Management",
         vendors: "Vendor Management",
         products: "Product Catalog",
@@ -333,8 +335,8 @@ async function sendChatMessage() {
     }
 }
 
-function appendChatBubble(role, htmlContent, id = null) {
-    const container = document.getElementById("chat-messages");
+function appendChatBubbleTo(containerId, role, htmlContent, id = null) {
+    const container = document.getElementById(containerId);
     const div = document.createElement("div");
     div.className = `chat-bubble ${role}`;
     if (id) div.id = id;
@@ -342,6 +344,107 @@ function appendChatBubble(role, htmlContent, id = null) {
     div.innerHTML = `<div class="bubble-content">${htmlContent}</div><div class="bubble-time">${now}</div>`;
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
+}
+
+function appendChatBubble(role, htmlContent, id = null) {
+    appendChatBubbleTo("chat-messages", role, htmlContent, id);
+}
+
+// ── Business Analyst Chatbot ─────────────────────────────────────
+
+const _analystSessionId = "analyst-" + Math.random().toString(36).slice(2, 10);
+
+function initAnalystChat() {
+    const input = document.getElementById("analyst-input");
+    const sendBtn = document.getElementById("analyst-send");
+    if (sendBtn) sendBtn.addEventListener("click", sendAnalystMessage);
+    if (input) {
+        input.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") sendAnalystMessage();
+        });
+    }
+    document.querySelectorAll(".analyst-prompt").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            input.value = btn.getAttribute("data-prompt");
+            sendAnalystMessage();
+        });
+    });
+}
+
+async function sendAnalystMessage() {
+    const input = document.getElementById("analyst-input");
+    const message = (input?.value || "").trim();
+    if (!message) return;
+
+    appendChatBubbleTo("analyst-messages", "user", escapeHtml(message));
+    input.value = "";
+
+    const typingId = "analyst-typing-" + Date.now();
+    appendChatBubbleTo("analyst-messages", "bot", `<span class="spinner-border spinner-border-sm me-2"></span>Analyzing dataset…`, typingId);
+
+    try {
+        const data = await fetchJson("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                message,
+                agent_type: "analyst",
+                session_id: _analystSessionId,
+            }),
+        });
+        document.getElementById(typingId)?.remove();
+
+        let html = `<div>${escapeHtml(data.response).replace(/\n/g, "<br>")}</div>`;
+        if (data.tool_results && data.tool_results.length > 0) {
+            const collapseId = "analyst-tools-" + Date.now();
+            html += `
+                <div class="mt-2">
+                    <a class="small text-decoration-none" data-bs-toggle="collapse" href="#${collapseId}">
+                        <i class="bi bi-wrench me-1"></i>Queries Executed (${data.tool_results.length})
+                    </a>
+                    <div class="collapse" id="${collapseId}">
+                        <div class="tool-result-box">${escapeHtml(JSON.stringify(data.tool_results, null, 2))}</div>
+                    </div>
+                </div>
+            `;
+        }
+        appendChatBubbleTo("analyst-messages", "bot", html);
+        if (data.chart) renderAnalystChart(data.chart);
+    } catch (err) {
+        document.getElementById(typingId)?.remove();
+        appendChatBubbleTo("analyst-messages", "bot", `<span class="text-danger">Error: ${escapeHtml(err.message)}</span>`);
+    }
+}
+
+function renderAnalystChart(spec) {
+    const ctx = document.getElementById("analystChart");
+    if (!ctx || !spec) return;
+    if (window._analystChart) window._analystChart.destroy();
+
+    const titleEl = document.getElementById("analyst-chart-title");
+    if (titleEl) titleEl.textContent = spec.title || "Analysis Visualization";
+
+    const palette = ["#0d6efd", "#198754", "#ffc107", "#0dcaf0", "#6f42c1", "#fd7e14", "#20c997", "#dc3545"];
+    window._analystChart = new Chart(ctx, {
+        type: spec.type || "bar",
+        data: {
+            labels: spec.labels || [],
+            datasets: [{
+                label: spec.datasetLabel || "Value",
+                data: spec.values || [],
+                backgroundColor: spec.type === "line" ? "rgba(13, 110, 253, 0.15)" : palette,
+                borderColor: spec.type === "line" ? "#0d6efd" : palette,
+                borderWidth: 1.5,
+                tension: 0.35,
+                fill: spec.type === "line",
+            }],
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: spec.type === "doughnut" } },
+            scales: spec.type === "doughnut" ? {} : { y: { beginAtZero: true } },
+        },
+    });
 }
 
 // ── Orders ───────────────────────────────────────────────────────

@@ -37,6 +37,11 @@ from app.services.analytics_service import (
     get_revenue_by_month,
     get_top_products,
     get_top_vendors,
+    get_revenue_by_category,
+    get_low_stock_products,
+    get_vendor_performance_report,
+    get_payment_and_delivery_breakdown,
+    get_top_customers,
 )
 from app.services.activity_service import (
     log_activity,

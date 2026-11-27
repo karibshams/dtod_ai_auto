@@ -314,6 +314,90 @@ PRODUCT_TOOLS = [
     },
 ]
 
+# ── Business Analyst Tools ───────────────────────────────────────
+
+ANALYST_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_business_summary",
+            "description": "Get overall marketplace KPIs: total orders, pending orders, gross revenue, products, vendors, and meetings",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_revenue_by_month",
+            "description": "Get monthly revenue trend across all orders",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_revenue_by_category",
+            "description": "Get gross revenue, units sold, and order counts grouped by product category",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_top_products",
+            "description": "Get top-selling products by quantity sold and revenue",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Number of top products to return (default 10)"}
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_low_stock_products",
+            "description": "Get active products with stock at or below threshold",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "threshold": {"type": "integer", "description": "Stock threshold (default 15)"}
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_vendor_performance",
+            "description": "Get all vendors ranked by gross sales with order counts, cancellation rates, and platform commission earned",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_payment_delivery_breakdown",
+            "description": "Get breakdown of payments by method/status and deliveries by carrier/status",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_top_customers",
+            "description": "Get top-spending customers with order count and city",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Number of customers to return (default 10)"}
+                },
+            },
+        },
+    },
+]
+
 
 # ── Tool Executor ────────────────────────────────────────────────
 
@@ -362,7 +446,13 @@ class ToolExecutor:
     @staticmethod
     def _get_handler(tool_name: str):
         """Return the service function matching *tool_name*, or None."""
-        from app.services import order_service, vendor_service, meeting_service, product_service
+        from app.services import (
+            order_service,
+            vendor_service,
+            meeting_service,
+            product_service,
+            analytics_service,
+        )
 
         mapping = {
             # Order tools
@@ -386,6 +476,16 @@ class ToolExecutor:
             # Product tools
             "search_products": product_service.search_products,
             "get_product_info": product_service.get_product_by_id,
+
+            # Business Analyst tools
+            "get_business_summary": analytics_service.get_dashboard_stats,
+            "get_revenue_by_month": analytics_service.get_revenue_by_month,
+            "get_revenue_by_category": analytics_service.get_revenue_by_category,
+            "get_top_products": analytics_service.get_top_products,
+            "get_low_stock_products": analytics_service.get_low_stock_products,
+            "get_vendor_performance": analytics_service.get_vendor_performance_report,
+            "get_payment_delivery_breakdown": analytics_service.get_payment_and_delivery_breakdown,
+            "get_top_customers": analytics_service.get_top_customers,
         }
         return mapping.get(tool_name)
 

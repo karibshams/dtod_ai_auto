@@ -221,3 +221,23 @@ def test_tool_name_normalization_and_coercion():
         assert res["data"]["end_time"] == "15:00"
     finally:
         db.close()
+
+
+def test_business_analyst_agent_and_chart():
+    resp = _request(
+        "POST",
+        "/api/chat",
+        json={
+            "message": "Show revenue by category",
+            "agent_type": "analyst",
+            "session_id": "analyst-test",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["agent"] == "analyst_agent"
+    assert len(data["tool_results"]) >= 1
+    assert data["tool_results"][0]["tool"] == "get_revenue_by_category"
+    assert data["chart"] is not None
+    assert data["chart"]["type"] == "bar"
+    assert len(data["chart"]["labels"]) >= 1

@@ -6,15 +6,33 @@ import re
 class AgentRouter:
     """Routes user messages to order, vendor, or meeting agents."""
 
-    VALID_AGENTS = ("order", "vendor", "meeting")
+    VALID_AGENTS = ("order", "vendor", "meeting", "analyst")
 
     @classmethod
     def route(cls, message: str, agent_type: str | None = None) -> str:
-        """Return 'order', 'vendor', or 'meeting'."""
+        """Return 'order', 'vendor', 'meeting', or 'analyst'."""
         if agent_type and agent_type.lower() in cls.VALID_AGENTS:
             return agent_type.lower()
 
         msg = message.lower()
+
+        if any(
+            kw in msg
+            for kw in (
+                "analy",
+                "kpi",
+                "revenue",
+                "trend",
+                "category",
+                "low stock",
+                "top product",
+                "top customer",
+                "performance",
+                "report",
+                "insight",
+            )
+        ):
+            return "analyst"
 
         if any(
             kw in msg
